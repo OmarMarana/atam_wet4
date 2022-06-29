@@ -172,8 +172,9 @@ void run_sys_debugger(pid_t child_pid, unsigned long func_addr, Elf64_Half UND, 
     // define data_trap
     unsigned long func_start_data_trap = (func_start_data & 0xFFFFFFFFFFFFFF00) | 0xCC;
 
-    while(!WIFEXITED(wait_status))
+    while(!WIFEXITED(wait_status) && call_counter < 8)
     {
+        printf("1\n");
         // adding BP at func
         ptrace(PTRACE_POKETEXT ,child_pid, (void*)func_addr, (void*)func_start_data_trap);
         ptrace(PTRACE_CONT, child_pid, NULL, NULL);
@@ -203,8 +204,11 @@ void run_sys_debugger(pid_t child_pid, unsigned long func_addr, Elf64_Half UND, 
         // at this point the child is stopped at the r_a
         unsigned long long int curr_rsp = regs.rsp - 8;
         int counter = 0;
-        while(wanted_rsp != curr_rsp)
+        while(wanted_rsp != curr_rsp && counter < 8)
         {
+            counter++;
+            printf("%lld, %lld\n", wanted_rsp, curr_rsp);
+            printf("2\n");
             ptrace(PTRACE_SETREGS, child_pid, NULL, &regs);
             // do one instruction
             if (ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL) < 0)
@@ -231,9 +235,7 @@ void run_sys_debugger(pid_t child_pid, unsigned long func_addr, Elf64_Half UND, 
             func_addr = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)func_addr_GOT_entry, NULL);
             UND = 1;
         }
-        
     }
-    printf("after while\n");
 }
 
 
