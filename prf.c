@@ -155,12 +155,16 @@ void run_sys_debugger(pid_t child_pid, unsigned long func_addr, bool UND, char* 
     int call_counter = 0;
     wait( &wait_status);
 
-    if (UND) 
+    if (UND)
     {
         //whats this? why is func_addr a parameter?
         func_addr_GOT_entry = find_GOT_entry(file_name, func_name);
         //is the func addr saved in the GOT as 8 bytes for sure? or can it be less than 8 bytes for mem utilization reasons?
         func_addr = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)func_addr_GOT_entry, NULL);
+    } 
+
+    WIFEXITED(&wait_status)
+    {
         long func_start_data = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)func_addr, NULL);
         // define data_trap
         unsigned long func_start_data_trap = (func_start_data & 0xFFFFFFFFFFFFFF00) | 0xCC;
@@ -198,7 +202,7 @@ void run_sys_debugger(pid_t child_pid, unsigned long func_addr, bool UND, char* 
                 //maybe the %d isnt right
                 call_counter++;
                 printf("PRF:: run #%d returned with %d\n",call_counter,regs.rax);
-                func_addr = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)func_addr_GOT_entry, NULL);
+                // func_addr = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)func_addr_GOT_entry, NULL);
                 break;
             }
             ptrace(PTRACE_POKETEXT child_pid, (void*)func_addr, (void*)func_start_data_trap);
@@ -225,12 +229,6 @@ void run_sys_debugger(pid_t child_pid, unsigned long func_addr, bool UND, char* 
             ptrace(PTRACE_SETREGS, child_pid, 0, &regs);
 
         }
-
-    }
-
-    WIFEXITED(&wait_status)
-    {
-        
     }
     
     
