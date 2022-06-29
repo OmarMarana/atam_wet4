@@ -98,7 +98,7 @@ bool check_file_and_func(char* file_name, char* func_name, Elf64_Half* sec_index
 }
 
 
-unsigned long find_addr_in_GOT(char* file_name, char* func_name)
+unsigned long find_GOT_entry(char* file_name, char* func_name)
 { 
     int elf_fd = open(exe_file_name, O_RDONLY);
     void *elf = mmap(NULL, lseek(elf_fd, 0, SEEK_END), PROT_READ, MAP_PRIVATE, elf_fd, 0);
@@ -139,7 +139,9 @@ unsigned long find_addr_in_GOT(char* file_name, char* func_name)
            break; 
         }
     }
-    return *((unsigned long*)(rela_plt[i].r_offset));
+    //i dont think this works, since we cant intervene with the childs mem space
+    // return *((unsigned long*)(rela_plt[i].r_offset));
+    return rela_plt[i].r_offset;
 }
 
 
@@ -149,30 +151,86 @@ void run_sys_debugger(pid_t child_pid, unsigned long func_addr, bool UND, char* 
     struct user_regs_struct regs; 
     unsigned long curr_rsp;
     unsigned long r_a;
+    unsigned long func_addr_GOT_entry;
+    int call_counter = 0;
     wait( &wait_status);
 
     if (UND) 
     {
-        func_addr = find_addr_in_GOT(file_name, func_name);
-        long data = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)func_addr, NULL);
+        //whats this? why is func_addr a parameter?
+        func_addr_GOT_entry = find_GOT_entry(file_name, func_name);
+        //is the func addr saved in the GOT as 8 bytes for sure? or can it be less than 8 bytes for mem utilization reasons?
+        func_addr = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)func_addr_GOT_entry, NULL);
+        long func_start_data = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)func_addr, NULL);
         // define data_trap
-        unsigned long data_trap = (data & 0xFFFFFFFFFFFFFF00) | 0xCC;
+        unsigned long func_start_data_trap = (func_start_data & 0xFFFFFFFFFFFFFF00) | 0xCC;
         // adding the first BP
-        ptrace(PTRACE_POKETEXT child_pid, (void*)func_addr, (void*)data_trap);
+        ptrace(PTRACE_POKETEXT child_pid, (void*)func_addr, (void*)func_start_data_trap);
         
         ptrace(PTRACE_CONT, child_pid, NULL, NULL);
-
         wait(&wait_status);
         //child stopped at breakpoint at the start of function
         ptrace(PTRACE_GETREGS, child_pid, 0, &regs);
         
-        ptrace(PTRACE_POKETEXT, child_pid, (void*)func_addr, (void*)data);
+        ptrace(PTRACE_POKETEXT, child_pid, (void*)func_addr, (void*)func_start_data);
         regs.rip -= 1;
         curr_rsp = regs.rsp;
+        ptrace(PTRACE_SETREGS, child_pid, 0, &regs);
+        //does peek read towards higher addresses?
         r_a = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)curr_rsp, NULL);
+        long r_a_data = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)r_a, NULL);
+        unsigned long r_a_data_trap = (r_a_data & 0xFFFFFFFFFFFFFF00) | 0xCC;
+        ptrace(PTRACE_POKETEXT child_pid, (void*)r_a, (void*)r_a_data_trap);
 
-        ptrace(PTRACE_POKETEXT child_pid, (void*)r_a, (void*)data_trap);
+        ptrace(PTRACE_CONT, child_pid, NULL, NULL);
+        wait(&wait_status);
 
+        ptrace(PTRACE_POKETEXT, child_pid, (void*)func_addr, (void*)r_a_data);
+        regs.rip -= 1;
+        ptrace(PTRACE_SETREGS, child_pid, 0, &regs);
+        
+        // at this point the child is stopped at the r_A
+        WIFSTOPPED(wait_status)
+        {
+            ptrace(PTRACE_GETREGS, child_pid, 0, &regs);
+            if(r_a == regs.rip && regs.rsp == curr_rsp )
+            {
+                //maybe the %d isnt right
+                call_counter++;
+                printf("PRF:: run #%d returned with %d\n",call_counter,regs.rax);
+                func_addr = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)func_addr_GOT_entry, NULL);
+                break;
+            }
+            ptrace(PTRACE_POKETEXT child_pid, (void*)func_addr, (void*)func_start_data_trap);
+        
+            ptrace(PTRACE_CONT, child_pid, NULL, NULL);
+            wait(&wait_status);
+            //child stopped at breakpoint at the start of function
+            ptrace(PTRACE_GETREGS, child_pid, 0, &regs);
+
+            ptrace(PTRACE_POKETEXT, child_pid, (void*)func_addr, (void*)func_start_data);
+            regs.rip -= 1;
+            ptrace(PTRACE_SETREGS, child_pid, 0, &regs);
+            //does peek read towards higher addresses?
+            r_a_not_first_call = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)regs.rsp, NULL);
+            long r_a_data = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)r_a_not_first_call, NULL);
+            unsigned long r_a_data_trap = (r_a_data & 0xFFFFFFFFFFFFFF00) | 0xCC;
+            ptrace(PTRACE_POKETEXT child_pid, (void*)r_a_not_first_call, (void*)r_a_data_trap);
+
+            ptrace(PTRACE_CONT, child_pid, NULL, NULL);
+            wait(&wait_status);
+
+            ptrace(PTRACE_POKETEXT, child_pid, (void*)func_addr, (void*)r_a_data);
+            regs.rip -= 1;
+            ptrace(PTRACE_SETREGS, child_pid, 0, &regs);
+
+        }
+
+    }
+
+    WIFEXITED(&wait_status)
+    {
+        
     }
     
     
