@@ -1,0 +1,3 @@
+C:/Users/omarm/Technion-CS/Semester_4/atam/atam_wet4/build/CMakeFiles/exe_name.dir
+C:/Users/omarm/Technion-CS/Semester_4/atam/atam_wet4/build/CMakeFiles/edit_cache.dir
+C:/Users/omarm/Technion-CS/Semester_4/atam/atam_wet4/build/CMakeFiles/rebuild_cache.dir

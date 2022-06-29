@@ -1,0 +1,3 @@
+"C:\Program Files\CMake\bin\cmake.exe" -E rm -f CMakeFiles\exe_name.dir/objects.a
+C:\TDM-GCC-64\bin\ar.exe cr CMakeFiles\exe_name.dir/objects.a @CMakeFiles\exe_name.dir\objects1.rsp
+C:\TDM-GCC-64\bin\gcc.exe -std=c99 --pedantic-errors -Wall -Werror -g -Wl,--whole-archive CMakeFiles\exe_name.dir/objects.a -Wl,--no-whole-archive -o exe_name.exe -Wl,--out-implib,libexe_name.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\exe_name.dir\linklibs.rsp

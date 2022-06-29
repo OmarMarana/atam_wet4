@@ -1,0 +1,7 @@
+[
+{
+  "directory": "C:/Users/omarm/Technion-CS/Semester_4/atam/atam_wet4/build",
+  "command": "C:\\TDM-GCC-64\\bin\\gcc.exe   -std=c99 --pedantic-errors -Wall -Werror -g -o CMakeFiles\\exe_name.dir\\myreadelf.c.obj -c C:\\Users\\omarm\\Technion-CS\\Semester_4\\atam\\atam_wet4\\myreadelf.c",
+  "file": "C:/Users/omarm/Technion-CS/Semester_4/atam/atam_wet4/myreadelf.c"
+}
+]
