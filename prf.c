@@ -6,6 +6,9 @@
 #include <string.h>
 #include "elf64.h"
 #include <sys/mman.h>
+#include <sys/wait.h>
+#include <sys/ptrace.h>
+#include <sys/user.h>
 
 #define GLOBAL 1
 #define INVALID_FILE -1
@@ -45,7 +48,7 @@ void* check_if_file_is_valid(char* file_name)
 
 bool check_file_and_func(char* file_name, char* func_name, Elf64_Half* sec_index_of_func, unsigned long* addr) 
 {
-    void* elf = checkIfFileIsvalid(file_name);
+    void* elf = check_if_file_is_valid(file_name);
     if (!elf) 
     {
         return false;
@@ -100,7 +103,7 @@ bool check_file_and_func(char* file_name, char* func_name, Elf64_Half* sec_index
 
 unsigned long find_GOT_entry(char* file_name, char* func_name)
 { 
-    int elf_fd = open(exe_file_name, O_RDONLY);
+    int elf_fd = open(file_name, O_RDONLY);
     void *elf = mmap(NULL, lseek(elf_fd, 0, SEEK_END), PROT_READ, MAP_PRIVATE, elf_fd, 0);
     Elf64_Ehdr* elf_header = (Elf64_Ehdr*)elf;
     Elf64_Shdr* section_h_arr = (Elf64_Shdr*)((char*)elf + elf_header->e_shoff);
@@ -133,7 +136,7 @@ unsigned long find_GOT_entry(char* file_name, char* func_name)
     {
 
         int dynsym_index = ELF64_R_SYM(rela_plt[i].r_info);
-        char* curr_symbol_name = strtab + dynsym[i].sh_name;
+        char* curr_symbol_name = strtab + dynsym[i].st_name;
         if(strcmp(func_name, curr_symbol_name) == 0)
         {
            break; 
@@ -145,7 +148,7 @@ unsigned long find_GOT_entry(char* file_name, char* func_name)
 }
 
 
-void run_sys_debugger(pid_t child_pid, unsigned long func_addr, bool UND, char* file_name, char* func_name) 
+void run_sys_debugger(pid_t child_pid, unsigned long func_addr, Elf64_Half UND, char* file_name, char* func_name) 
 {
     int wait_status;
     struct user_regs_struct regs; 
@@ -155,21 +158,20 @@ void run_sys_debugger(pid_t child_pid, unsigned long func_addr, bool UND, char* 
     int call_counter = 0;
     wait( &wait_status);
 
-    if (UND)
+    if (UND == SHN_UNDEF)
     {
-        //whats this? why is func_addr a parameter?
         func_addr_GOT_entry = find_GOT_entry(file_name, func_name);
         //is the func addr saved in the GOT as 8 bytes for sure? or can it be less than 8 bytes for mem utilization reasons?
         func_addr = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)func_addr_GOT_entry, NULL);
     } 
 
-    WIFEXITED(&wait_status)
+    while(WIFEXITED(wait_status))
     {
         long func_start_data = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)func_addr, NULL);
         // define data_trap
         unsigned long func_start_data_trap = (func_start_data & 0xFFFFFFFFFFFFFF00) | 0xCC;
         // adding the first BP
-        ptrace(PTRACE_POKETEXT child_pid, (void*)func_addr, (void*)func_start_data_trap);
+        ptrace(PTRACE_POKETEXT ,child_pid, (void*)func_addr, (void*)func_start_data_trap);
         
         ptrace(PTRACE_CONT, child_pid, NULL, NULL);
         wait(&wait_status);
@@ -184,45 +186,48 @@ void run_sys_debugger(pid_t child_pid, unsigned long func_addr, bool UND, char* 
         r_a = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)curr_rsp, NULL);
         long r_a_data = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)r_a, NULL);
         unsigned long r_a_data_trap = (r_a_data & 0xFFFFFFFFFFFFFF00) | 0xCC;
-        ptrace(PTRACE_POKETEXT child_pid, (void*)r_a, (void*)r_a_data_trap);
+        ptrace(PTRACE_POKETEXT ,child_pid, (void*)r_a, (void*)r_a_data_trap);
 
         ptrace(PTRACE_CONT, child_pid, NULL, NULL);
         wait(&wait_status);
 
         ptrace(PTRACE_POKETEXT, child_pid, (void*)func_addr, (void*)r_a_data);
+        ptrace(PTRACE_GETREGS, child_pid, 0, &regs);
         regs.rip -= 1;
         ptrace(PTRACE_SETREGS, child_pid, 0, &regs);
         
-        // at this point the child is stopped at the r_A
-        WIFSTOPPED(wait_status)
+        // at this point the child is stopped at the r_a
+        while(WIFSTOPPED(wait_status))
         {
             ptrace(PTRACE_GETREGS, child_pid, 0, &regs);
-            if(r_a == regs.rip && regs.rsp == curr_rsp )
+            if (r_a == regs.rip && regs.rsp == curr_rsp )
             {
-                //maybe the %d isnt right
                 call_counter++;
-                printf("PRF:: run #%d returned with %d\n",call_counter,regs.rax);
-                // func_addr = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)func_addr_GOT_entry, NULL);
+                printf("PRF:: run #%d returned with %lld\n", call_counter, regs.rax);
+                if (UND == SHN_UNDEF)
+                {
+                    func_addr = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)func_addr_GOT_entry, NULL);
+                }
                 break;
             }
-            ptrace(PTRACE_POKETEXT child_pid, (void*)func_addr, (void*)func_start_data_trap);
-        
+
+            ptrace(PTRACE_POKETEXT ,child_pid, (void*)func_addr, (void*)func_start_data_trap);
             ptrace(PTRACE_CONT, child_pid, NULL, NULL);
             wait(&wait_status);
             //child stopped at breakpoint at the start of function
             ptrace(PTRACE_GETREGS, child_pid, 0, &regs);
-
             ptrace(PTRACE_POKETEXT, child_pid, (void*)func_addr, (void*)func_start_data);
             regs.rip -= 1;
             ptrace(PTRACE_SETREGS, child_pid, 0, &regs);
             //does peek read towards higher addresses?
-            r_a_not_first_call = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)regs.rsp, NULL);
+            unsigned long r_a_not_first_call = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)regs.rsp, NULL);
             long r_a_data = ptrace(PTRACE_PEEKTEXT, child_pid, (void*)r_a_not_first_call, NULL);
             unsigned long r_a_data_trap = (r_a_data & 0xFFFFFFFFFFFFFF00) | 0xCC;
-            ptrace(PTRACE_POKETEXT child_pid, (void*)r_a_not_first_call, (void*)r_a_data_trap);
+            ptrace(PTRACE_POKETEXT ,child_pid, (void*)r_a_not_first_call, (void*)r_a_data_trap);
 
             ptrace(PTRACE_CONT, child_pid, NULL, NULL);
             wait(&wait_status);
+            
 
             ptrace(PTRACE_POKETEXT, child_pid, (void*)func_addr, (void*)r_a_data);
             regs.rip -= 1;
@@ -276,6 +281,6 @@ int main(int argc, char** argv)
 
 
     pid_t child_pid = run_target(exefile_name, argv);
-    run_sys_debugger(child_pid, symbol_addr);
+    run_sys_debugger(child_pid, addr, sec_index_of_func, exefile_name, func_name);
     return 0;
 }
