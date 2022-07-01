@@ -17,6 +17,6 @@ set(CMAKE_C_FLAGS ${MTM_FLAGS_DEBUG})
 
 
 # Add the names of your source files here
-set(C_FILES "myreadelf.c")
+set(C_FILES "prf.c")
 
 add_executable(exe_name ${C_FILES})

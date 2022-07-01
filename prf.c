@@ -62,7 +62,7 @@ bool check_file_and_func(const char* file_name, const char* func_name, Elf64_Hal
     Elf64_Ehdr* elf_header = (Elf64_Ehdr*)elf;
     Elf64_Shdr* section_h_arr = (Elf64_Shdr*)((char*)elf + elf_header->e_shoff);
     Elf64_Shdr section_h_str_table = section_h_arr[elf_header->e_shstrndx];
-    char sh_str_tbl = (char)elf + section_h_str_table.sh_offset;
+    char *sh_str_tbl = (char*)elf + section_h_str_table.sh_offset;
     Elf64_Half sections_amount = elf_header->e_shnum;
     Elf64_Sym *symtab;
     char *strtab;
@@ -113,13 +113,13 @@ unsigned long find_GOT_entry(const char* file_name, const char* func_name)
     Elf64_Ehdr* elf_header = (Elf64_Ehdr*)elf;
     Elf64_Shdr* section_h_arr = (Elf64_Shdr*)((char*)elf + elf_header->e_shoff);
     Elf64_Shdr sh_str_section = section_h_arr[elf_header->e_shstrndx];
-    char sh_str_tbl = (char)elf + sh_str_section.sh_offset;
+    char *sh_str_tbl = (char*)elf + sh_str_section.sh_offset;
     Elf64_Half sections_amount = elf_header->e_shnum;
     Elf64_Sym *dynsym;
     Elf64_Rela *rela_plt;
     char *strtab;
     int rela_entries_num = 0;
-    printf("hello, getting GOT")
+    printf("hello, getting GOT");
     for(int i = 0; i < sections_amount; i++)
     {
         char* section_name = sh_str_tbl + section_h_arr[i].sh_name;
@@ -129,10 +129,10 @@ unsigned long find_GOT_entry(const char* file_name, const char* func_name)
         }
         else if(!strcmp(".rela.plt", section_name))
         {
-            rela_plt = ((Elf64_Rela*)elf + section_h_arr[i].sh_offset);
+            rela_plt = (Elf64_Rela*)((char*)elf + section_h_arr[i].sh_offset);
             rela_entries_num = section_h_arr[i].sh_size / section_h_arr[i].sh_entsize;
         }
-        else if (!strcmp(".strtab", section_name))
+        else if (!strcmp(".dynstr", section_name))
         {
             strtab = ((char*)elf + section_h_arr[i].sh_offset);
         }
@@ -141,10 +141,11 @@ unsigned long find_GOT_entry(const char* file_name, const char* func_name)
     for(; i < rela_entries_num; i++) 
     {
         int dynsym_index = ELF64_R_SYM(rela_plt[i].r_info);
-        char* curr_symbol_name = strtab + dynsym[i].st_name;
+        char* curr_symbol_name = strtab + dynsym[dynsym_index].st_name;
         if(strcmp(func_name, curr_symbol_name) == 0)
         {
-           break;
+            printf("bye, got GOT");
+            break;
         }
     }
     close(elf_fd);
@@ -175,13 +176,14 @@ void run_sys_debugger(pid_t child_pid, unsigned long func_addr, Elf64_Half UND, 
 
     while(!WIFEXITED(wait_status))
     {
+        printf("1\n");
         // adding BP at func
         ptrace(PTRACE_POKETEXT ,child_pid, (void*)func_addr, (void*)func_start_data_trap);
         ptrace(PTRACE_CONT, child_pid, NULL, NULL);
         wait(&wait_status);
         if (WIFEXITED(wait_status)) 
         {
-            //printf("done\n");
+            printf("done\n");
             return;
         }
         //child stopped at breakpoint at the start of function
@@ -209,7 +211,7 @@ void run_sys_debugger(pid_t child_pid, unsigned long func_addr, Elf64_Half UND, 
         {
             counter++;
             //printf("%lld, %lld\n", wanted_rsp, curr_rsp);
-            //printf("2\n");
+            printf("2\n");
             ptrace(PTRACE_SETREGS, child_pid, NULL, &regs);
             // do one instruction
             if (ptrace(PTRACE_SINGLESTEP, child_pid, NULL, NULL) < 0)
